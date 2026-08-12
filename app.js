@@ -1,5 +1,7 @@
 const $ = (s) => document.querySelector(s);
 
+const API_URL = "https://nova-backend-7dla.onrender.com";
+
 const chat = $("#chat");
 const input = $("#messageInput");
 const historyEl = $("#history");
@@ -29,7 +31,6 @@ function persist() {
 
 
 function renderHistory(filter = "") {
-
   historyEl.innerHTML = "";
 
   chats
@@ -37,7 +38,6 @@ function renderHistory(filter = "") {
     .slice()
     .reverse()
     .forEach((c) => {
-
       const button = document.createElement("button");
 
       button.textContent = "💬 " + c.title;
@@ -50,7 +50,6 @@ function renderHistory(filter = "") {
 
 
 function saveCurrent() {
-
   if (!current.messages.length) return;
 
   const index =
@@ -68,7 +67,6 @@ function saveCurrent() {
 
 
 function loadChat(id) {
-
   const found = chats.find(
     (c) => c.id === id
   );
@@ -93,7 +91,6 @@ function loadChat(id) {
 
 
 function newChat() {
-
   saveCurrent();
 
   current = {
@@ -140,41 +137,26 @@ function newChat() {
 }
 
 
-function addMessage(
-  role,
-  text,
-  store = true
-) {
-
-  const welcome =
-    $("#welcome");
+function addMessage(role, text, store = true) {
+  const welcome = $("#welcome");
 
   if (welcome) {
     welcome.remove();
   }
 
-  const row =
-    document.createElement("div");
+  const row = document.createElement("div");
+  row.className = "msg " + role;
 
-  row.className =
-    "msg " + role;
-
-  const bubble =
-    document.createElement("div");
-
+  const bubble = document.createElement("div");
   bubble.className = "bubble";
-
   bubble.textContent = text;
 
   row.appendChild(bubble);
-
   chat.appendChild(row);
 
-  chat.scrollTop =
-    chat.scrollHeight;
+  chat.scrollTop = chat.scrollHeight;
 
   if (store) {
-
     current.messages.push({
       role: role,
       text: text
@@ -184,8 +166,7 @@ function addMessage(
       role === "user" &&
       current.messages.length === 1
     ) {
-      current.title =
-        text.substring(0, 32);
+      current.title = text.substring(0, 32);
     }
 
     saveCurrent();
@@ -193,75 +174,63 @@ function addMessage(
 }
 
 
-function mockAnswer(text) {
+/* =========================
+   NOVA AI API
+========================= */
 
-  const t =
-    text.toLowerCase();
+async function askNova(message) {
 
-  if (
-    t.includes("web app") ||
-    t.includes("مشروع")
-  ) {
+  const history = current.messages
+    .filter(
+      (m) =>
+        m.role === "user" ||
+        m.role === "assistant"
+    )
+    .slice(-20)
+    .map((m) => ({
+      role: m.role,
+      content: m.text
+    }));
 
-    return `
-أكيد! 🔥
+  const response = await fetch(
+    `${API_URL}/api/chat`,
+    {
+      method: "POST",
 
-تنجم تعمل Nova Hub:
-• AI Chat
-• Voice
-• حفظ المحادثات
-• أدوات AI
-• Dashboard
-• Memory
+      headers: {
+        "Content-Type": "application/json"
+      },
 
-الواجهة الحالية تخدم Frontend فقط.
-باش نخليو الـAI حقيقي، نربطو Backend بالـAI API.
-`;
+      body: JSON.stringify({
+        message: message,
+        history: history
+      })
+    }
+  );
+
+  if (!response.ok) {
+    throw new Error(
+      `API Error: ${response.status}`
+    );
   }
 
-  if (
-    t.includes("html") ||
-    t.includes("كود")
-  ) {
+  const data = await response.json();
 
-    return `
-تنجم تبدأ بـ HTML + CSS + JavaScript.
-
-بعدها نزيدو:
-Backend
-Database
-Authentication
-AI API
-
-والـAPI Key يبقى مخفي في Backend.
-`;
+  if (!data.answer) {
+    throw new Error(
+      "Nova returned no answer."
+    );
   }
 
-  if (t.includes("ai")) {
-
-    return `
-الذكاء الاصطناعي يستقبل السؤال،
-يعالجه بواسطة نموذج AI،
-وبعد يرجع الإجابة.
-
-في Nova الحقيقية:
-Frontend → Backend → AI API
-`;
-  }
-
-  return `
-فهمتك 👍
-
-هذه نسخة Frontend تجريبية من Nova.
-
-الإجابة الحالية Demo.
-للحصول على إجابات AI حقيقية،
-نحتاج Backend + AI API.
-`;
+  return data.answer;
 }
 
 
-function send(text) {
+/* =========================
+   SEND MESSAGE
+========================= */
+
+async function send(text) {
 
   text =
     (text || input.value).trim();
@@ -277,10 +246,43 @@ function send(text) {
     text
   );
 
-  setTimeout(() => {
+  // Loading message
+  const loadingId =
+    "nova-loading-" + Date.now();
+
+  const loading =
+    document.createElement("div");
+
+  loading.className =
+    "msg assistant";
+
+  loading.id =
+    loadingId;
+
+  loading.innerHTML = `
+    <div class="bubble">
+      Nova تفكّر... ⏳
+    </div>
+  `;
+
+  chat.appendChild(loading);
+
+  chat.scrollTop =
+    chat.scrollHeight;
+
+  try {
 
     const answer =
-      mockAnswer(text);
+      await askNova(text);
+
+    const loadingElement =
+      document.getElementById(
+        loadingId
+      );
+
+    if (loadingElement) {
+      loadingElement.remove();
+    }
 
     addMessage(
       "assistant",
@@ -289,9 +291,33 @@ function send(text) {
 
     speak(answer);
 
-  }, 500);
+  } catch (error) {
+
+    console.error(
+      "Nova API Error:",
+      error
+    );
+
+    const loadingElement =
+      document.getElementById(
+        loadingId
+      );
+
+    if (loadingElement) {
+      loadingElement.remove();
+    }
+
+    addMessage(
+      "assistant",
+      "صار مشكل في الاتصال بـ Nova 🤖\n\nتأكد أن الـBackend شغال وأن API Key موجود في Render."
+    );
+  }
 }
 
+
+/* =========================
+   INPUT
+========================= */
 
 function resizeInput() {
 
@@ -334,9 +360,17 @@ input.addEventListener(
 );
 
 
+/* =========================
+   NEW CHAT
+========================= */
+
 $("#newChat").onclick =
   newChat;
 
+
+/* =========================
+   CLEAR
+========================= */
 
 $("#clearBtn").onclick =
   () => {
@@ -346,11 +380,17 @@ $("#clearBtn").onclick =
         "تمسح المحادثة الحالية؟"
       )
     ) {
+
       newChat();
+
     }
 
   };
 
+
+/* =========================
+   SEARCH
+========================= */
 
 $("#searchInput").oninput =
   (event) => {
@@ -362,6 +402,10 @@ $("#searchInput").oninput =
   };
 
 
+/* =========================
+   MOBILE MENU
+========================= */
+
 $("#menuBtn").onclick =
   () => {
 
@@ -371,6 +415,10 @@ $("#menuBtn").onclick =
 
   };
 
+
+/* =========================
+   THEME
+========================= */
 
 $("#themeBtn").onclick =
   () => {
@@ -403,6 +451,10 @@ if (
 
 }
 
+
+/* =========================
+   SETTINGS
+========================= */
 
 $("#settingsBtn").onclick =
   () => {
@@ -441,6 +493,10 @@ $("#saveSettings").onclick =
 
   };
 
+
+/* =========================
+   VOICE INPUT
+========================= */
 
 let recognition = null;
 let listening = false;
@@ -511,9 +567,13 @@ if (
     () => {
 
       if (listening) {
+
         recognition.stop();
+
       } else {
+
         recognition.start();
+
       }
 
     };
@@ -531,6 +591,10 @@ if (
 
 }
 
+
+/* =========================
+   TEXT TO SPEECH
+========================= */
 
 function speak(text) {
 
@@ -559,6 +623,10 @@ function speak(text) {
 }
 
 
+/* =========================
+   FILE
+========================= */
+
 $("#fileInput").onchange =
   (event) => {
 
@@ -571,12 +639,16 @@ $("#fileInput").onchange =
         .textContent =
         "📎 " +
         file.name +
-        " — الرفع تجريبي حاليًا؛ تحليل الملف يحتاج Backend.";
+        " — الرفع تجريبي حاليًا.";
 
     }
 
   };
 
+
+/* =========================
+   SUGGESTIONS
+========================= */
 
 function bindSuggestions() {
 
@@ -587,9 +659,10 @@ function bindSuggestions() {
     .forEach((button) => {
 
       button.onclick =
-        () => send(
-          button.dataset.prompt
-        );
+        () =>
+          send(
+            button.dataset.prompt
+          );
 
     });
 
